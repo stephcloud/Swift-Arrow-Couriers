@@ -1,199 +1,177 @@
-Swift Arrow Couriers — Tracking Window
-=========================================
+Swift Arrow Couriers - Tracking Window
 
-What this is
---------------
-A command-line program that replaces the old paper tracking window.
-Staff sign in once and receive a day pass instead of typing a password
-every time. From then on, they submit slips (GET/POST/PUT/DELETE
-commands) and get back a reply that always starts with a status code,
-the same way a real web API responds. A 50,000-parcel dataset is kept
-in memory with three indexes for instant lookup — by tracking code, by
-destination city, and by status — plus a small cache that remembers
-the ten most recent answers, and a seal that detects if the saved
-ledger has been tampered with.
+What this does
+-------------------------------------------------------------------------------------------------------
+This is a command-line program that replaces the old paper window at
+Swift Arrow's tracking office. Staff sign in once and get a "day
+pass" instead of typing their password every single time. After
+that, they type slips like GET parcel <code> or PUT parcel <code>,
+and every reply starts with a status code, the same way a real API
+responds (200, 404, and so on).
+
+There are 50,000 parcels in the dataset. To keep things fast, I built
+three lookup tables (I call them indexes) instead of scanning the
+whole list every time - one by tracking code, one by destination
+city, and one by status. There's also a small cache that remembers
+the last 10 answers so repeat questions come back instantly, and a
+"seal" that checks whether the saved file has been tampered with.
 
 Folder structure
--------------------
-swift_arrow/              The package. All program logic lives here.
-    __init__.py             Marks this folder as a Python package.
-    storage.py                Loads and saves parcels.json. Builds all
-                            three indexes (tracking code, destination
-                            city, status). Computes and checks the
-                            seal — a fingerprint of the ledger's
-                            contents.
-    auth.py                     Checks hashed passwords, issues and
-                            validates day-pass tokens (with 5-minute
-                            expiry), and checks whether a user is the
-                            Station Master.
-    parcels.py                   GET/POST/PUT/DELETE logic for one
-                            parcel or a group of parcels, using the
-                            index for fast lookup and timing how long
-                            each lookup takes.
-    cache.py                      The "tray" — remembers the ten most
-                            recently answered questions, so a repeated
-                            question is answered instantly instead of
-                            being searched again.
-    stats.py                       Counts how often each tracking code
-                            is looked up, for the most-wanted board.
+--------------------------------------------------------------------------------------------------------
+swift_arrow/ - the actual package, everything the program does lives
+in here.
 
-main.py                   The only file you run. Parses slips and
-                        calls functions from the swift_arrow package.
-                        Contains no logic of its own beyond the
-                        window loop.
+- __init__.py - just marks the folder as a package, empty otherwise.
+- storage.py - loads and saves parcels.json, builds the three
+  indexes, and handles the seal (checking the file hasn't been
+  quietly edited).
+- auth.py - checks passwords against their hashes, issues and checks
+  day-pass tokens, and knows who's allowed to delete.
+- parcels.py - the actual GET/POST/PUT/DELETE logic for parcels,
+  using the index so lookups are fast, and timing how long each one
+  takes.
+- cache.py - the "tray." Keeps the 10 most recent answers so repeat
+  questions don't redo the work.
+- stats.py - counts how many times each tracking code gets looked
+  up, for the most-wanted board.
 
-seed_staff.py             Run once, before the program is used for the
-                        first time. Converts the plaintext staff table
-                        into hashed credentials. This file is NOT
-                        pushed to GitHub (see .gitignore) because it
-                        contains real plaintext passwords used only to
-                        generate the hashes.
+Outside the package:
+- main.py - the only file you actually run. It just reads slips and
+  calls functions from swift_arrow. No real logic lives here.
+- seed_staff.py - run this once before using the program for the
+  first time. It turns the plaintext staff list into hashed
+  passwords. I don't push this file to GitHub since it has real
+  passwords in it before they get hashed.
+- staff_credentials.json - gets created by seed_staff.py. Only holds
+  hashed passwords, never the real ones.
+- parcels.json - the given dataset, gets updated as the program runs.
+- parcels.seal - created automatically, holds a fingerprint of
+  parcels.json so tampering can be caught.
+- .gitignore - keeps seed_staff.py and __pycache__ out of git.
 
-staff_credentials.json    Created by seed_staff.py. Contains only
-                        scrambled password hashes and each staff
-                        member's position. No real password is ever
-                        stored here or anywhere else in the project.
-
-parcels.json               The given 50,000-parcel dataset. Loaded at
-                        startup, updated in place, and saved back to
-                        this same file after any change.
-
-parcels.seal                Created automatically. Holds a fingerprint
-                        of parcels.json, checked at every startup to
-                        detect tampering.
-
-.gitignore                  Excludes seed_staff.py and __pycache__/
-                        from version control.
-
-README.txt                   This file.
-
-How to run
--------------
+How to run it
+----------------------------------------------------------------------------------------------------
 First time only:
     python seed_staff.py
 
-Then, every time:
+Every time after that:
     python main.py
 
-You will be asked to sign in. Successful sign-in returns a day pass
-(token). Show no further password after that; the token is held for
-the rest of that session and checked on every slip automatically.
+Sign in when it asks. You'll get a day pass back - you don't need to
+type your password again after that, the program remembers it for
+the rest of that run.
 
-Slip format
---------------
+Slips you can type
+------------------------------------------------------------------------------------------------------
     GET parcel <tracking code>
     GET parcels to <city>
-    GET parcels <status, e.g. out for delivery>
+    GET parcels <status>          e.g. GET parcels out for delivery
     GET board
     PUT parcel <tracking code>
     DELETE parcel <tracking code>
 
-PUT will prompt for a new status and/or destination, either of which
-can be left blank to leave that field unchanged.
+PUT will ask you for a new status and/or destination. Leave either
+one blank to keep it as it was.
 
-Reply codes
---------------
-200   Done, here you are.
-201   Created, a new thing now exists.
-400   The slip could not be read.
-401   Not signed in, the day pass has expired or is invalid, or the
-      ledger failed its tamper check.
-403   Signed in, but not allowed to do this (a Clerk attempting
-      DELETE).
-404   There is no such parcel.
+What the codes mean
+---------------------------------------------------------------------------------------------------
+200 - done, here's your answer
+201 - created something new
+400 - couldn't understand that slip
+401 - not signed in, your pass expired, or the ledger failed its
+tamper check
+403 - you're signed in, but not allowed to do that (a Clerk trying
+to delete)
+404 - no such parcel
 
-Roles
---------
-Clerks can look up and update parcels. Only the Station Master can
-delete a parcel; a Clerk attempting DELETE is refused with a 403.
+Who can do what
+-----------------------------------------------------------------------------------------------
+Clerks can look up parcels and update them. Only the Station Master
+can delete one. If a Clerk tries, they get a 403.
 
-The indexes — why lookups are fast
---------------------------------------
-Rather than searching through all 50,000 parcels for a match,
-storage.py builds a dictionary once at startup mapping each tracking
-code directly to its parcel. Looking something up in a dictionary by
-its key takes roughly the same amount of time no matter how large the
-dictionary is, which is why GET parcel <code> returns in a fraction
-of a millisecond even against the full dataset. Two more dictionaries
-do the same for destination city and for status, so GET parcels to
-<city> and GET parcels <status> do not need to scan the whole list
-either.
+Why the indexes matter
+---------------------------------------------------------------------------------------------------
+Without them, looking up one parcel out of 50,000 means checking
+every single one until you find it, or checking all of them and
+finding nothing. That gets slow. A dictionary lookup by key doesn't
+work that way - it jumps straight to the answer no matter how big
+the dictionary is, which is why GET parcel <code> comes back in a
+fraction of a millisecond even against the full file. The city and
+status indexes work the same way, just grouped differently.
 
-The cache — why some answers are remembered
--------------------------------------------------
-Customers often ask the same question more than once. The ten most
-recently answered questions are kept in memory. Asking the same
-question again is answered directly from this cache instead of being
-recalculated, which matters most for city and status lookups, where
-gathering potentially thousands of matches is real work. A single
-parcel lookup is already fast enough that the cache makes no
-measurable difference there.
+Why there's a cache
+-------------------------------------------------------------------------------------------------
+People ask the same question more than once. Rather than redoing a
+city or status search every time, the last 10 answers are kept in
+memory and handed back instantly if the same question comes in
+again. This barely matters for single-parcel lookups since those are
+already near-instant, but it makes a real difference on city/status
+searches that touch thousands of parcels.
 
-Whenever a parcel is changed through PUT or DELETE, the cache, the
-destination-city index, and the status index are all rebuilt. This
-prevents staleness in three different ways: a cached answer describing
-data that no longer matches reality, a parcel remaining listed under a
-city it no longer belongs to after its destination changes, and the
-same for a status that has since changed.
+Any time a parcel gets changed through PUT or DELETE, the cache and
+both group indexes (city and status) get rebuilt from scratch. If I
+didn't do this, you could end up with a cached answer that's flat
+out wrong, or a parcel still showing up under a city or status it no
+longer belongs to.
 
-Hashing — the different jobs it does in this project
-------------------------------------------------------------
-Hashing is used for two different jobs here, with two different tools,
-because the two jobs need different properties from a hash function.
+Hashing - two different jobs, two different tools
+------------------------------------------------------------------------------------------------------
+This project uses hashing for two completely different things, and I
+used a different tool for each on purpose.
 
-Password storage uses bcrypt. A password typed at sign-in is scrambled
-and compared against the stored scrambled version; the real password
-is never written to any file. bcrypt is deliberately slow, which makes
-guessing passwords by brute force impractical, and it automatically
-adds random data (a salt) so that two staff members with the same
-password do not end up with identical-looking stored hashes.
+Passwords are hashed with bcrypt. When someone signs in, their typed
+password gets scrambled and compared to the stored scrambled version
+- the real password is never written anywhere. bcrypt is deliberately
+slow, which makes it impractical for someone to brute-force guess a
+password, and it automatically mixes in some randomness (a salt) so
+two people with the same password don't end up with matching hashes.
 
-Detecting tampering with the ledger uses sha256, a fast general-purpose
-hash. Speed is not a weakness here, since the goal is not to resist
-guessing but to notice quickly whether the file's contents have
-changed at all. A fingerprint of the whole file is computed and saved
-after every legitimate save; at every startup, the fingerprint is
-recomputed and compared. Even a single changed character anywhere in
-the file produces a completely different fingerprint, which is what
-lets the seal catch tampering that would otherwise still look like
-valid, readable JSON.
+Checking whether the ledger's been tampered with uses sha256
+instead, which is fast rather than slow. Here speed isn't a problem,
+because I'm not trying to stop someone from guessing anything - I
+just want to know quickly if the file changed at all. Every time the
+program saves, it also saves a fresh fingerprint of the file. At
+startup, it recomputes that fingerprint and compares it to what was
+saved. Change even one character anywhere in the file and the
+fingerprint comes out completely different, which is how the seal
+catches tampering that wouldn't even break the JSON.
 
-Day pass (token)
--------------------
-Signing in successfully issues a random, unguessable token using
-Python's secrets module, which is built for security-sensitive
-randomness (unlike the general-purpose random module). The token maps
-to the signed-in user's identity and role, held only in memory for
-that run of the program — never written to disk, which is also why
-day passes are never pushed to GitHub; there is nothing to push. A
-token expires 5 minutes after it is issued; a slip presented with an
-expired token receives a 401 and the user is asked to sign in again.
+Day passes (tokens)
+-----------------------------------------------------------------------------------------------
+When you sign in, the program generates a random, unguessable token
+using Python's secrets module (not the regular random module, which
+isn't meant for anything security related). That token is tied to
+your username and role and only lives in memory while the program is
+running - it's never saved to a file, which is also why it never
+ends up on GitHub. It expires 5 minutes after being issued; after
+that you'll get a 401 and be asked to sign in again.
 
-The most-wanted board
--------------------------
-Every time a specific tracking code is looked up, the count for that
-code is incremented in memory. GET board shows the ten most-looked-up
-tracking codes and how many times each was asked about. These counts
-reset when the program restarts, since they are not saved to disk.
+Most-wanted board
+--------------------------------------------------------------------------------------------------
+Every time someone looks up a specific parcel by tracking code, that
+gets counted. GET board shows the 10 most-looked-up tracking codes
+and how many times each came up. These counts live in memory only,
+so they reset every time the program restarts.
 
-Data corruption and tampering
-----------------------------------
-If parcels.json has been damaged so that it is no longer valid JSON,
-the program does not crash. It prints a warning and starts with an
-empty parcel list rather than losing the ability to run.
+What happens if the data gets damaged
+----------------------------------------------------------------------------------------------------
+If parcels.json gets broken badly enough that it's no longer valid
+JSON, the program won't crash - it prints a warning and just starts
+with an empty parcel list.
 
-Separately, if parcels.json is still valid JSON but its contents no
-longer match the saved seal (meaning something inside it was edited
-since the last legitimate save), the program refuses to load the
-parcel data at all rather than trust it, and says so plainly. Signing
-in and using the menu still work; parcel data does not load until a
-clean file is restored.
+That's different from tampering. If the file is still valid JSON but
+doesn't match the saved seal (meaning something inside it got
+changed since the last real save), the program refuses to load the
+parcel data at all and says so. You can still sign in and use the
+menu, but nothing parcel-related works until the file is fixed or
+replaced.
 
-Known limitations
----------------------
-- City and status names in GET parcels <...> are matched exactly as
-  typed, including capitalization.
-- The dataset is treated as effectively static; POST parcel exists in
-  the code but new parcels are not part of the ledger the program is
-  tested against.
-- Most-wanted counts are memory-only and reset on restart.
+Things I know are limited
+-----------------------------------------------------------------------------------------------------
+- City and status names have to match exactly, including
+  capitalization.
+- The dataset is basically static for this project - POST parcel
+  exists in the code, but new parcels aren't really part of what
+  gets tested.
+- Most-wanted counts don't get saved anywhere, so they reset every
+  restart.
