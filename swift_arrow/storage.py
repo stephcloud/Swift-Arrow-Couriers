@@ -1,7 +1,9 @@
+import hashlib
 import json
 import os
 
 DATA_FILE = "parcels.json"
+SEAL_FILE = "parcels.seal"
 
 
 def load_parcels():
@@ -39,3 +41,39 @@ def build_city_index(parcels):
         city = parcel["destination"]
         city_index.setdefault(city, []).append(parcel)
     return city_index
+
+
+def build_status_index(parcels):
+    """Build a dictionary mapping status -> list of parcels with that status."""
+    status_index = {}
+    for parcel in parcels:
+        status = parcel["status"]
+        status_index.setdefault(status, []).append(parcel)
+    return status_index
+
+
+def compute_seal():
+    """Compute a fingerprint of the current contents of parcels.json."""
+    with open(DATA_FILE, "rb") as f:
+        contents = f.read()
+    return hashlib.sha256(contents).hexdigest()
+
+
+def save_seal():
+    """Write the current fingerprint to disk."""
+    seal = compute_seal()
+    with open(SEAL_FILE, "w") as f:
+        f.write(seal)
+
+
+def verify_seal():
+    """Check the current file against the saved fingerprint.
+    Returns True if they match, False if they don't, None if no seal exists yet."""
+    if not os.path.exists(SEAL_FILE):
+        return None
+
+    with open(SEAL_FILE, "r") as f:
+        saved_seal = f.read().strip()
+
+    current_seal = compute_seal()
+    return current_seal == saved_seal

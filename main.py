@@ -1,4 +1,4 @@
-from swift_arrow import auth, storage, parcels, cache
+from swift_arrow import auth, storage, parcels, cache, stats
 
 
 def parse_slip(slip):
@@ -13,16 +13,30 @@ def parse_slip(slip):
 
     if len(parts) >= 3:
         if parts[2].lower() == "to" and len(parts) >= 4:
-            extra = parts[3]
-        else:
+            extra = " ".join(parts[3:])
+        elif resource == "parcel":
             code_or_city = parts[2]
+        else:
+            extra = " ".join(parts[2:])
 
     return verb, resource, code_or_city, extra
 
 
 def handle_slip(
-    verb, resource, code_or_city, extra, data, index, city_index, user_info
+    verb,
+    resource,
+    code_or_city,
+    extra,
+    data,
+    index,
+    city_index,
+    status_index,
+    user_info,
 ):
+    if verb == "GET" and resource == "board":
+        top = stats.most_wanted()
+        return 200, "Most wanted tracking codes", top
+
     if resource != "parcel" and resource != "parcels":
         return (
             400,
@@ -31,6 +45,8 @@ def handle_slip(
         )
 
     if verb == "GET" and resource == "parcel" and code_or_city:
+        stats.record_query(code_or_city)
+
         cache_key = f"parcel:{code_or_city}"
         cached = cache.get(cache_key)
         if cached is not None:
@@ -42,12 +58,16 @@ def handle_slip(
         return code, message, payload
 
     if verb == "GET" and resource == "parcels" and extra:
-        cache_key = f"city:{extra}"
+        cache_key = f"lookup:{extra}"
         cached = cache.get(cache_key)
         if cached is not None:
             return 200, f"{len(cached)} parcels (from the tray)", cached[:5]
 
-        matches = city_index.get(extra, [])
+        if extra in city_index:
+            matches = city_index.get(extra, [])
+        else:
+            matches = status_index.get(extra, [])
+
         cache.set(cache_key, matches)
         return 200, f"{len(matches)} parcels found", matches[:5]
 
@@ -73,6 +93,8 @@ def handle_slip(
         cache.clear()
         city_index.clear()
         city_index.update(storage.build_city_index(data))
+        status_index.clear()
+        status_index.update(storage.build_status_index(data))
         return result
 
     if verb == "PUT" and resource == "parcel" and code_or_city:
@@ -87,6 +109,8 @@ def handle_slip(
         cache.clear()
         city_index.clear()
         city_index.update(storage.build_city_index(data))
+        status_index.clear()
+        status_index.update(storage.build_status_index(data))
         return result
 
     if verb == "DELETE" and resource == "parcel" and code_or_city:
@@ -100,6 +124,8 @@ def handle_slip(
         cache.clear()
         city_index.clear()
         city_index.update(storage.build_city_index(data))
+        status_index.clear()
+        status_index.update(storage.build_status_index(data))
         return result
 
     return 400, "I cannot read this slip.", None
@@ -123,9 +149,21 @@ def sign_in_flow():
 
 def main():
     print("SWIFT ARROW COURIERS - TRACKING WINDOW")
-    data = storage.load_parcels()
-    index = storage.build_index(data)
-    city_index = storage.build_city_index(data)
+
+    seal_status = storage.verify_seal()
+    if seal_status is False:
+        print("401 The ledger has been tampered with since it was last saved.")
+        print("Refusing to load parcel data until this is investigated.")
+        data = []
+        index = {}
+        city_index = {}
+        status_index = {}
+    else:
+        data = storage.load_parcels()
+        index = storage.build_index(data)
+        city_index = storage.build_city_index(data)
+        status_index = storage.build_status_index(data)
+        storage.save_seal()
 
     token = sign_in_flow()
     if token is None:
@@ -151,7 +189,15 @@ def main():
             code, message, payload = 400, "I cannot read this slip", None
         else:
             code, message, payload = handle_slip(
-                verb, resource, code_or_city, extra, data, index, city_index, user_info
+                verb,
+                resource,
+                code_or_city,
+                extra,
+                data,
+                index,
+                city_index,
+                status_index,
+                user_info,
             )
 
         print(f"{code} - {message}")
@@ -160,6 +206,7 @@ def main():
 
         if code in (200, 201) and verb in ("POST", "PUT", "DELETE"):
             storage.save_parcels(data)
+            storage.save_seal()
 
 
 if __name__ == "__main__":
