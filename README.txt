@@ -175,3 +175,8 @@ Things I know are limited
   gets tested.
 - Most-wanted counts don't get saved anywhere, so they reset every
   restart.
+
+
+WakaTime:
+----------------------------------------------------------------------------------------------------------------------------------
+[![wakatime](https://wakatime.com/badge/user/7c5b6aa0-4562-41f0-8aa2-b1d05e3b9a1c/project/b48ccb5b-5b04-44e0-9f01-412093343780.svg)](https://wakatime.com/badge/user/7c5b6aa0-4562-41f0-8aa2-b1d05e3b9a1c/project/b48ccb5b-5b04-44e0-9f01-412093343780)
